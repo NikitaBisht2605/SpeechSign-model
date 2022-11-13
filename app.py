@@ -103,6 +103,7 @@ class VideoTransformer(VideoProcessorBase):
 
 
 def sign_detection(db, user_id):
+    st.image("static/sign.jpg")
     ctx = webrtc_streamer(
         key="SpeechSign",
         mode=WebRtcMode.SENDRECV,
