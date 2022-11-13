@@ -23,7 +23,7 @@ from streamlit_bokeh_events import streamlit_bokeh_events
 import os
 from io import BytesIO
 import streamlit.components.v1 as components
-
+import pandas as pd
 
 # np.set_printoptions(suppress=True)
 
@@ -258,8 +258,9 @@ def show_database(db, user_id):
     for sign in sign_ref:
         res = sign.to_dict()
         for alphabet, prob in res.items():
-            sign_df = sign_df.append(
-                {'Alphabet': alphabet, 'Confidence': prob}, ignore_index=True)
+            # use pandas.concat
+            sign_df = pd.concat([sign_df, pd.DataFrame(
+                {"Alphabet": [alphabet], "Confidence": [prob]})], ignore_index=True)
 
     st.dataframe(sign_df)
 
