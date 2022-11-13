@@ -14,18 +14,19 @@ from streamlit_webrtc import (
 from typing import List, NamedTuple
 from PIL import Image, ImageOps
 import cv2
-import tensorflow.keras
+from tensorflow import keras 
 import numpy as np
 import pandas as pd
 from bokeh.models.widgets import Button, widget
 from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
+import os 
+from io import BytesIO
+import streamlit.components.v1 as components
 
-np.set_printoptions(suppress=True)
-WEBRTC_CLIENT_SETTINGS = ClientSettings(
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    media_stream_constraints={"video": True, "audio": True},
-)
+
+# np.set_printoptions(suppress=True)
+
 
 global query_param 
 
@@ -84,22 +85,22 @@ class VideoTransformer(VideoProcessorBase):
         frm = cv2.resize(img, (224,224))
         frm = Image.fromarray(frm)
         size = (224, 224)
-        image = ImageOps.fit(frm, size, Image.ANTIALIAS)
+        image = ImageOps.fit(frm, size, Image.Resampling.LANCZOS)
         image_array = np.asarray(image)
         normalized_image_array = (image_array.astype(np.float32) / 127.0) - 1
         self.data[0] = normalized_image_array
-        model = tensorflow.keras.models.load_model("model/keras_model.h5", compile=False)
+        model = keras.models.load_model("model/keras_model.h5", compile=False)
         result = self._predict_image(self.data, model)
         self.result_queue.put(result)
 
         return 0
 
 def sign_detection(db, user_id):
-    
     ctx = webrtc_streamer(
         key="SpeechSign",
         mode=WebRtcMode.SENDRECV,
-        client_settings=WEBRTC_CLIENT_SETTINGS,
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        media_stream_constraints={"video": True, "audio": False},
         video_processor_factory=VideoTransformer, 
         async_processing=True,)
     
@@ -123,7 +124,29 @@ def sign_detection(db, user_id):
 def speech_detection():
     st.header("Press the following button to speak.")
     st.write("As soon as you press the button, microphone of your device gets activated and your audio is converted to Sign Language.")
+
+    parent_dir = os.path.dirname(os.path.abspath(__file__))
+    build_dir = os.path.join(parent_dir, "st_audiorec/frontend/build")
+    st_audiorec = components.declare_component("st_audiorec", path=build_dir)
+
+    val = st_audiorec()
+
+
+    if isinstance(val, dict):  # retrieve audio data
+        with st.spinner('retrieving audio-recording...'):
+            ind, val = zip(*val['arr'].items())
+            ind = np.array(ind, dtype=int)  # convert to np array
+            val = np.array(val)             # convert to np array
+            sorted_ints = val[ind]
+            stream = BytesIO(b"".join([int(v).to_bytes(1, "big") for v in sorted_ints]))
+            wav_bytes = stream.read()
+
+        # wav_bytes contains audio data in format to be further processed
+        # display audio data as received on the Python side
+        # st.audio(wav_bytes, format='audio/wav')
+    
     stt_button = Button(label="Speak", width=100)
+
 
     stt_button.js_on_event("button_click", CustomJS(code="""
         var recognition = new webkitSpeechRecognition();
@@ -143,14 +166,14 @@ def speech_detection():
         }
         recognition.start();
         """))
-
-    result = streamlit_bokeh_events(
-        stt_button,
-        events="GET_TEXT",
-        key="listen",
-        refresh_on_update=False,
-        override_height=75,
-        debounce_time=0)
+    result = ""
+    # result = streamlit_bokeh_events(
+    #     stt_button,
+    #     events="GET_TEXT",
+    #     key="listen",
+    #     refresh_on_update=False,
+    #     override_height=75,
+    #     debounce_time=0)
 
     if result:
         if "GET_TEXT" in result:

@@ -12,3 +12,5 @@ numpy
 bokeh
 streamlit_bokeh_events
 pyarrow
+torch
+transformers
