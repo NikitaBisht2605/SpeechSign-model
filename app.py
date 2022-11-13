@@ -415,7 +415,7 @@ def speech_detection():
     sound_only_page = "Sound only (sendonly)"
     with_video_page = "With video (sendrecv)"
 
-    app_mode = st.dropdown(
+    app_mode = st.selectbox(
         "Choose the app mode",
         [sound_only_page, with_video_page],
         index=1,
