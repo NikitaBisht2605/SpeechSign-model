@@ -1,4 +1,3 @@
-import re
 import streamlit as st
 import queue
 import av
@@ -8,8 +7,7 @@ from firebase_admin import firestore
 from streamlit_webrtc import (
     webrtc_streamer,
     VideoProcessorBase,
-    WebRtcMode,
-    ClientSettings
+    WebRtcMode
 )
 from typing import List, NamedTuple
 from PIL import Image, ImageOps
@@ -17,13 +15,19 @@ import cv2
 from tensorflow import keras
 import numpy as np
 import pandas as pd
-from bokeh.models.widgets import Button, widget
-from bokeh.models import CustomJS
-from streamlit_bokeh_events import streamlit_bokeh_events
 import os
 from io import BytesIO
 import streamlit.components.v1 as components
 import pandas as pd
+import queue
+import threading
+import time
+import urllib.request
+from collections import deque
+from pathlib import Path
+from typing import List
+import pydub
+
 
 # np.set_printoptions(suppress=True)
 
@@ -150,59 +154,285 @@ def sign_detection(db, user_id):
                     break
 
 
+HERE = Path(__file__).parent
+
+
+def download_file(url, download_to: Path, expected_size=None):
+    # Don't download the file twice.
+    # (If possible, verify the download using the file length.)
+    if download_to.exists():
+        if expected_size:
+            if download_to.stat().st_size == expected_size:
+                return
+        else:
+            st.info(f"{url} is already downloaded.")
+            if not st.button("Download again?"):
+                return
+
+    download_to.parent.mkdir(parents=True, exist_ok=True)
+
+    # These are handles to two visual elements to animate.
+    weights_warning, progress_bar = None, None
+    try:
+        weights_warning = st.warning("Downloading %s..." % url)
+        progress_bar = st.progress(0)
+        with open(download_to, "wb") as output_file:
+            with urllib.request.urlopen(url) as response:
+                length = int(response.info()["Content-Length"])
+                counter = 0.0
+                MEGABYTES = 2.0 ** 20.0
+                while True:
+                    data = response.read(8192)
+                    if not data:
+                        break
+                    counter += len(data)
+                    output_file.write(data)
+
+                    # We perform animation by overwriting the elements.
+                    weights_warning.warning(
+                        "Downloading %s... (%6.2f/%6.2f MB)"
+                        % (url, counter / MEGABYTES, length / MEGABYTES)
+                    )
+                    progress_bar.progress(min(counter / length, 1.0))
+    # Finally, we remove these visual elements by calling .empty().
+    finally:
+        if weights_warning is not None:
+            weights_warning.empty()
+        if progress_bar is not None:
+            progress_bar.empty()
+
+
+def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
+    webrtc_ctx = webrtc_streamer(
+        key="speech-to-text",
+        mode=WebRtcMode.SENDONLY,
+        audio_receiver_size=1024,
+        rtc_configuration={"iceServers": [
+            {
+                "urls": "stun:openrelay.metered.ca:80",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:80",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+        ]},
+        media_stream_constraints={"video": False, "audio": True},
+    )
+
+    status_indicator = st.empty()
+
+    if not webrtc_ctx.state.playing:
+        return
+
+    status_indicator.write("Loading...")
+    text_output = st.empty()
+    stream = None
+
+    while True:
+        if webrtc_ctx.audio_receiver:
+            if stream is None:
+                from deepspeech import Model
+
+                model = Model(model_path)
+                model.enableExternalScorer(lm_path)
+                model.setScorerAlphaBeta(lm_alpha, lm_beta)
+                model.setBeamWidth(beam)
+
+                stream = model.createStream()
+
+                status_indicator.write("Model loaded.")
+
+            sound_chunk = pydub.AudioSegment.empty()
+            try:
+                audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+            except queue.Empty:
+                time.sleep(0.1)
+                status_indicator.write("No frame arrived.")
+                continue
+
+            status_indicator.write("Running. Say something!")
+
+            for audio_frame in audio_frames:
+                sound = pydub.AudioSegment(
+                    data=audio_frame.to_ndarray().tobytes(),
+                    sample_width=audio_frame.format.bytes,
+                    frame_rate=audio_frame.sample_rate,
+                    channels=len(audio_frame.layout.channels),
+                )
+                sound_chunk += sound
+
+            if len(sound_chunk) > 0:
+                sound_chunk = sound_chunk.set_channels(1).set_frame_rate(
+                    model.sampleRate()
+                )
+                buffer = np.array(sound_chunk.get_array_of_samples())
+                stream.feedAudioContent(buffer)
+                text = stream.intermediateDecode()
+                text_output.markdown(f"**Text:** {text}")
+        else:
+            status_indicator.write("AudioReciver is not set. Abort.")
+            break
+
+
+def app_sst_with_video(
+    model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int
+):
+    frames_deque_lock = threading.Lock()
+    frames_deque: deque = deque([])
+
+    async def queued_audio_frames_callback(
+        frames: List[av.AudioFrame],
+    ) -> av.AudioFrame:
+        with frames_deque_lock:
+            frames_deque.extend(frames)
+
+        # Return empty frames to be silent.
+        new_frames = []
+        for frame in frames:
+            input_array = frame.to_ndarray()
+            new_frame = av.AudioFrame.from_ndarray(
+                np.zeros(input_array.shape, dtype=input_array.dtype),
+                layout=frame.layout.name,
+            )
+            new_frame.sample_rate = frame.sample_rate
+            new_frames.append(new_frame)
+
+        return new_frames
+
+    webrtc_ctx = webrtc_streamer(
+        key="speech-to-text-w-video",
+        mode=WebRtcMode.SENDRECV,
+        queued_audio_frames_callback=queued_audio_frames_callback,
+        rtc_configuration={"iceServers": [
+            {
+                "urls": "stun:openrelay.metered.ca:80",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:80",
+                        "username": "openrelayproject",
+                        "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443",
+                        "username": "openrelayproject",
+                        "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                        "username": "openrelayproject",
+                        "credential": "openrelayproject",
+            },
+        ]},
+        media_stream_constraints={"video": True, "audio": True},
+    )
+
+    status_indicator = st.empty()
+
+    if not webrtc_ctx.state.playing:
+        return
+
+    status_indicator.write("Loading...")
+    text_output = st.empty()
+    stream = None
+
+    while True:
+        if webrtc_ctx.state.playing:
+            if stream is None:
+                from deepspeech import Model
+
+                model = Model(model_path)
+                model.enableExternalScorer(lm_path)
+                model.setScorerAlphaBeta(lm_alpha, lm_beta)
+                model.setBeamWidth(beam)
+
+                stream = model.createStream()
+
+                status_indicator.write("Model loaded.")
+
+            sound_chunk = pydub.AudioSegment.empty()
+
+            audio_frames = []
+            with frames_deque_lock:
+                while len(frames_deque) > 0:
+                    frame = frames_deque.popleft()
+                    audio_frames.append(frame)
+
+            if len(audio_frames) == 0:
+                time.sleep(0.1)
+                status_indicator.write("No frame arrived.")
+                continue
+
+            status_indicator.write("Running. Say something!")
+
+            for audio_frame in audio_frames:
+                sound = pydub.AudioSegment(
+                    data=audio_frame.to_ndarray().tobytes(),
+                    sample_width=audio_frame.format.bytes,
+                    frame_rate=audio_frame.sample_rate,
+                    channels=len(audio_frame.layout.channels),
+                )
+                sound_chunk += sound
+
+            if len(sound_chunk) > 0:
+                sound_chunk = sound_chunk.set_channels(1).set_frame_rate(
+                    model.sampleRate()
+                )
+                buffer = np.array(sound_chunk.get_array_of_samples())
+                stream.feedAudioContent(buffer)
+                text = stream.intermediateDecode()
+                text_output.markdown(f"**Text:** {text}")
+        else:
+            status_indicator.write("Stopped.")
+            break
+
+
 def speech_detection():
-    st.header("Press the following button to speak.")
-    st.write("As soon as you press the button, microphone of your device gets activated and your audio is converted to Sign Language.")
 
-    parent_dir = os.path.dirname(os.path.abspath(__file__))
-    build_dir = os.path.join(parent_dir, "st_audiorec/frontend/build")
-    st_audiorec = components.declare_component("st_audiorec", path=build_dir)
+    MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.pbmm"  # noqa
+    LANG_MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.scorer"  # noqa
+    MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.pbmm"
+    LANG_MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.scorer"
 
-    val = st_audiorec()
+    download_file(MODEL_URL, MODEL_LOCAL_PATH, expected_size=188915987)
+    download_file(LANG_MODEL_URL, LANG_MODEL_LOCAL_PATH,
+                  expected_size=953363776)
 
-    if isinstance(val, dict):  # retrieve audio data
-        with st.spinner('retrieving audio-recording...'):
-            ind, val = zip(*val['arr'].items())
-            ind = np.array(ind, dtype=int)  # convert to np array
-            val = np.array(val)             # convert to np array
-            sorted_ints = val[ind]
-            stream = BytesIO(
-                b"".join([int(v).to_bytes(1, "big") for v in sorted_ints]))
-            wav_bytes = stream.read()
+    lm_alpha = 0.931289039105002
+    lm_beta = 1.1834137581510284
+    beam = 100
 
-        # wav_bytes contains audio data in format to be further processed
-        # display audio data as received on the Python side
-        # st.audio(wav_bytes, format='audio/wav')
+    sound_only_page = "Sound only (sendonly)"
+    with_video_page = "With video (sendrecv)"
 
-    stt_button = Button(label="Speak", width=100)
+    app_mode = st.dropdown(
+        "Choose the app mode",
+        [sound_only_page, with_video_page],
+        index=1,
+    )
 
-    stt_button.js_on_event("button_click", CustomJS(code="""
-        var recognition = new webkitSpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-    
-        recognition.onresult = function (e) {
-            var value = "";
-            for (var i = e.resultIndex; i < e.results.length; ++i) {
-                if (e.results[i].isFinal) {
-                    value += e.results[i][0].transcript;
-                }
-            }
-            if ( value != "") {
-                document.dispatchEvent(new CustomEvent("GET_TEXT", {detail: value}));
-            }
-        }
-        recognition.start();
-        """))
+    if app_mode == sound_only_page:
+        app_sst(
+            str(MODEL_LOCAL_PATH), str(
+                LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam
+        )
+    elif app_mode == with_video_page:
+        app_sst_with_video(
+            str(MODEL_LOCAL_PATH), str(
+                LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam
+        )
+
     result = ""
-    # result = streamlit_bokeh_events(
-    #     stt_button,
-    #     events="GET_TEXT",
-    #     key="listen",
-    #     refresh_on_update=False,
-    #     override_height=75,
-    #     debounce_time=0)
-
     if result:
         if "GET_TEXT" in result:
             text = result.get("GET_TEXT")
