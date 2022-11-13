@@ -106,24 +106,24 @@ def sign_detection(db, user_id):
     ctx = webrtc_streamer(
         key="SpeechSign",
         mode=WebRtcMode.SENDRECV,
-        rtc_configuration={iceServers: [
+        rtc_configuration={"iceServers": [
             {
-                urls: "stun:openrelay.metered.ca:80",
+                "urls": "stun:openrelay.metered.ca:80",
             },
             {
-                urls: "turn:openrelay.metered.ca:80",
-                username: "openrelayproject",
-                credential: "openrelayproject",
+                "urls": "turn:openrelay.metered.ca:80",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
             },
             {
-                urls: "turn:openrelay.metered.ca:443",
-                username: "openrelayproject",
-                credential: "openrelayproject",
+                "urls": "turn:openrelay.metered.ca:443",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
             },
             {
-                urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                username: "openrelayproject",
-                credential: "openrelayproject",
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
             },
         ]},
         media_stream_constraints={"video": True, "audio": False},
@@ -224,7 +224,7 @@ def speech_detection():
                 width, height = im.size
 
                 imResize = im.resize(
-                    (mean_width, mean_height), Image.ANTIALIAS)
+                    (mean_width, mean_height), Image.Resampling.LANCZOS)
                 imResize.save("video_proc/"+i+".jpeg", 'JPEG', quality=95)
 
             video_name = 'video_proc/{}.webm'.format(text)
