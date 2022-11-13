@@ -6,7 +6,7 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from streamlit_webrtc import (
-    webrtc_streamer, 
+    webrtc_streamer,
     VideoProcessorBase,
     WebRtcMode,
     ClientSettings
@@ -14,13 +14,13 @@ from streamlit_webrtc import (
 from typing import List, NamedTuple
 from PIL import Image, ImageOps
 import cv2
-from tensorflow import keras 
+from tensorflow import keras
 import numpy as np
 import pandas as pd
 from bokeh.models.widgets import Button, widget
 from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
-import os 
+import os
 from io import BytesIO
 import streamlit.components.v1 as components
 
@@ -28,15 +28,18 @@ import streamlit.components.v1 as components
 # np.set_printoptions(suppress=True)
 
 
-global query_param 
+global query_param
+
 
 def firebase():
     if not firebase_admin._apps:
-        cred = credentials.Certificate('static/speechsign-23477-8f5b84f0980a.json')
+        cred = credentials.Certificate(
+            'static/speechsign-23477-8f5b84f0980a.json')
         app = firebase_admin.initialize_app(cred)
     app = firebase_admin.get_app()
     db = firestore.client()
     return app, db
+
 
 @st.cache
 def cache_query_param():
@@ -45,19 +48,22 @@ def cache_query_param():
     user_id = query_param['user'][0]
     return user_id, query_param
 
+
 def gen_labels():
-        labels = {}
-        with open("model/labels.txt", "r") as label:
-            text = label.read()
-            lines = text.split("\n")
-            for line in lines[0:-1]:
-                    hold = line.split(" ", 1)
-                    labels[hold[0]] = hold[1]
-        return labels
+    labels = {}
+    with open("model/labels.txt", "r") as label:
+        text = label.read()
+        lines = text.split("\n")
+        for line in lines[0:-1]:
+            hold = line.split(" ", 1)
+            labels[hold[0]] = hold[1]
+    return labels
+
 
 class Detection(NamedTuple):
-        name: str
-        prob: float
+    name: str
+    prob: float
+
 
 class VideoTransformer(VideoProcessorBase):
 
@@ -67,7 +73,7 @@ class VideoTransformer(VideoProcessorBase):
         self.threshold1 = 224
         self.result_queue = queue.Queue()
         self.data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-    
+
     def _predict_image(self, image, model):
         result: List[Detection] = []
         labels = gen_labels()
@@ -82,7 +88,7 @@ class VideoTransformer(VideoProcessorBase):
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         self.frame = frame
         img = frame.to_ndarray(format="bgr24")
-        frm = cv2.resize(img, (224,224))
+        frm = cv2.resize(img, (224, 224))
         frm = Image.fromarray(frm)
         size = (224, 224)
         image = ImageOps.fit(frm, size, Image.Resampling.LANCZOS)
@@ -95,15 +101,35 @@ class VideoTransformer(VideoProcessorBase):
 
         return 0
 
+
 def sign_detection(db, user_id):
     ctx = webrtc_streamer(
         key="SpeechSign",
         mode=WebRtcMode.SENDRECV,
-        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        rtc_configuration={iceServers: [
+            {
+                urls: "stun:openrelay.metered.ca:80",
+            },
+            {
+                urls: "turn:openrelay.metered.ca:80",
+                username: "openrelayproject",
+                credential: "openrelayproject",
+            },
+            {
+                urls: "turn:openrelay.metered.ca:443",
+                username: "openrelayproject",
+                credential: "openrelayproject",
+            },
+            {
+                urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                username: "openrelayproject",
+                credential: "openrelayproject",
+            },
+        ]},
         media_stream_constraints={"video": True, "audio": False},
-        video_processor_factory=VideoTransformer, 
+        video_processor_factory=VideoTransformer,
         async_processing=True,)
-    
+
     if st.checkbox("Show the detected labels", value=True):
         if ctx.state.playing:
             labels_placeholder = st.empty()
@@ -113,13 +139,15 @@ def sign_detection(db, user_id):
                         result = ctx.video_processor.result_queue.get(
                             timeout=1.0
                         )
-                        doc_ref = db.collection(u'users').document(user_id).collection('sign-detected').add({result[0].name:result[0].prob})
+                        doc_ref = db.collection(u'users').document(user_id).collection(
+                            'sign-detected').add({result[0].name: result[0].prob})
                     except queue.Empty:
                         result = None
-                    
+
                     labels_placeholder.table(result)
                 else:
                     break
+
 
 def speech_detection():
     st.header("Press the following button to speak.")
@@ -131,22 +159,21 @@ def speech_detection():
 
     val = st_audiorec()
 
-
     if isinstance(val, dict):  # retrieve audio data
         with st.spinner('retrieving audio-recording...'):
             ind, val = zip(*val['arr'].items())
             ind = np.array(ind, dtype=int)  # convert to np array
             val = np.array(val)             # convert to np array
             sorted_ints = val[ind]
-            stream = BytesIO(b"".join([int(v).to_bytes(1, "big") for v in sorted_ints]))
+            stream = BytesIO(
+                b"".join([int(v).to_bytes(1, "big") for v in sorted_ints]))
             wav_bytes = stream.read()
 
         # wav_bytes contains audio data in format to be further processed
         # display audio data as received on the Python side
         # st.audio(wav_bytes, format='audio/wav')
-    
-    stt_button = Button(label="Speak", width=100)
 
+    stt_button = Button(label="Speak", width=100)
 
     stt_button.js_on_event("button_click", CustomJS(code="""
         var recognition = new webkitSpeechRecognition();
@@ -179,7 +206,7 @@ def speech_detection():
         if "GET_TEXT" in result:
             text = result.get("GET_TEXT")
             text = text.upper()
-            text = text.replace(' ','')
+            text = text.replace(' ', '')
             mean_width = 0
             mean_height = 0
             num_of_images = len(text)
@@ -189,21 +216,22 @@ def speech_detection():
                 mean_width += width
                 mean_height += height
 
-            mean_width = int(mean_width/ num_of_images)
-            mean_height = int(mean_height/ num_of_images)
+            mean_width = int(mean_width / num_of_images)
+            mean_height = int(mean_height / num_of_images)
             images = []
             for i in text:
                 im = Image.open("static/sign_alpha/"+i+".jpg")
                 width, height = im.size
 
-                imResize = im.resize((mean_width, mean_height), Image.ANTIALIAS)
-                imResize.save("video_proc/"+i+".jpeg",'JPEG', quality=95)
-            
+                imResize = im.resize(
+                    (mean_width, mean_height), Image.ANTIALIAS)
+                imResize.save("video_proc/"+i+".jpeg", 'JPEG', quality=95)
+
             video_name = 'video_proc/{}.webm'.format(text)
             frame = cv2.imread("video_proc/"+text[0]+".jpeg")
             height, width, layers = frame.shape
             fourcc = cv2.VideoWriter_fourcc(*'VP90')
-            video = cv2.VideoWriter(video_name,fourcc, 1, (width, height)) 
+            video = cv2.VideoWriter(video_name, fourcc, 1, (width, height))
 
             for i in text:
                 video.write(cv2.imread("video_proc/"+i+".jpeg"))
@@ -214,21 +242,24 @@ def speech_detection():
             st.video("video_proc/{}.webm".format(text))
     return 0
 
+
 def show_database(db, user_id):
     doc_ref = db.collection(u'users').document(user_id)
     doc = doc_ref.get()
     user_det = doc.to_dict()
     st.header("User Details")
-    user_df = pd.DataFrame({"Type":['Name','DOB','Email'], "Value":[user_det['name'],user_det['dob'],user_det['email']]})
+    user_df = pd.DataFrame({"Type": ['Name', 'DOB', 'Email'], "Value": [
+                           user_det['name'], user_det['dob'], user_det['email']]})
     st.dataframe(user_df)
 
     st.header('Sign Detected')
-    sign_df = pd.DataFrame(columns=['Alphabet','Confidence'])
+    sign_df = pd.DataFrame(columns=['Alphabet', 'Confidence'])
     sign_ref = doc_ref.collection(u'sign-detected').stream()
     for sign in sign_ref:
         res = sign.to_dict()
-        for alphabet,prob in res.items():
-            sign_df = sign_df.append({'Alphabet':alphabet,'Confidence':prob}, ignore_index=True)
+        for alphabet, prob in res.items():
+            sign_df = sign_df.append(
+                {'Alphabet': alphabet, 'Confidence': prob}, ignore_index=True)
 
     st.dataframe(sign_df)
 
@@ -237,7 +268,7 @@ def main():
     image = Image.open("static/vid_call.jpg")
     logo = Image.open("static/logo.png")
     st.set_page_config(page_title="SpeechSign", page_icon=logo)
-    
+
     st.image(image)
     st.title("@SpeechSign")
     user_id, query_param = cache_query_param()
@@ -258,8 +289,7 @@ def main():
     elif algo == "Sign Recog Model Architecture":
         st.title("Sign Recog Model Architecture")
         st.image("static/arch.png")
- 
-    
+
+
 if __name__ == "__main__":
-    
     main()
