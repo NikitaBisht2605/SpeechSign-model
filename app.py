@@ -239,6 +239,8 @@ def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam
     text_output = st.empty()
     stream = None
 
+    text = ""
+
     while True:
         if webrtc_ctx.audio_receiver:
             if stream is None:
@@ -280,6 +282,10 @@ def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam
                 stream.feedAudioContent(buffer)
                 text = stream.intermediateDecode()
                 text_output.markdown(f"**Text:** {text}")
+
+                # write to audio_proc/data.txt
+                with open('audio_proc/data.txt', 'w') as f:
+                    f.write(text)
         else:
             status_indicator.write("AudioReciver is not set. Abort.")
             break
@@ -392,6 +398,8 @@ def app_sst_with_video(
                 stream.feedAudioContent(buffer)
                 text = stream.intermediateDecode()
                 text_output.markdown(f"**Text:** {text}")
+                with open('audio_proc/data.txt', 'w') as f:
+                    f.write(text)
         else:
             status_indicator.write("Stopped.")
             break
@@ -432,10 +440,10 @@ def speech_detection():
                 LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam
         )
 
-    result = ""
-    if result:
-        if "GET_TEXT" in result:
-            text = result.get("GET_TEXT")
+    # read content of audio_proc/data.txt
+    with open('audio_proc/data.txt', 'r') as f:
+        text = f.read()
+        if text != '':
             text = text.upper()
             text = text.replace(' ', '')
             mean_width = 0
@@ -469,8 +477,13 @@ def speech_detection():
 
             cv2.destroyAllWindows()
             video.release()
-            st.header(result.get("GET_TEXT").title())
+            st.header(text)
             st.video("video_proc/{}.webm".format(text))
+
+    # clear content of audio_proc/data.txt
+    with open('audio_proc/data.txt', 'w') as f:
+        f.write('')
+         
     return 0
 
 
