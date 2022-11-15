@@ -310,7 +310,7 @@ def extract_feature(image):
                     pinky_TipX, pinky_TipY, pinky_TipZ,
                     annotated_image)
 
-
+@st.cache(ttl=24*3600, allow_output_mutation=True)
 def load_model():
     num_classes = 26
     model = tf.keras.models.Sequential([
