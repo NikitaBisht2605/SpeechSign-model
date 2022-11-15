@@ -15,6 +15,11 @@ from firebase_admin import credentials, firestore
 from PIL import Image
 from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 import queue
+import os 
+import glob
+import requests
+import json
+import time
 # np.set_printoptions(suppress=True)
 
 
@@ -507,43 +512,39 @@ def speech_detection():
     if len(audio) > 0:
         st.audio(audio)
 
-        model = audio_model()
+        # model = audio_model()
 
         # if not audio.mp3 exists then create it
         wav_file = open("audio_proc/audio.mp3", "wb")
         wav_file.write(audio.tobytes())
-        result = model.transcribe("audio_proc/audio.mp3")
-        text = result["text"]
 
+        API_URL = "https://api-inference.huggingface.co/models/openai/whisper-small.en"
+        headers = {"Authorization": "Bearer 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"}
+
+        def query(filename):
+            with open(filename, "rb") as f:
+                data = f.read()
+            response = requests.request("POST", API_URL, headers=headers, data=data)
+            return json.loads(response.content.decode("utf-8"))
+
+        result = query("audio_proc/audio.mp3")
+
+        while 'error' in result:
+            time.sleep(10)
+            result = query("audio_proc/audio.mp3")
+        text = result["text"]
+        # result = model.transcribe("audio_proc/audio.mp3")
+        # text = result["text"]
+
+        
         if text != '':
             original_text = text
             text = text.upper()
             text = text.replace(' ', '')
-            mean_width = 0
-            mean_height = 0
-            num_of_images = len(text)
-            for i in text:
-                if not i.isalpha():
-                    continue
-                im = Image.open("static/sign_alpha/"+i+".jpg")
-                width, height = im.size
-                mean_width += width
-                mean_height += height
-
-            mean_width = int(mean_width / num_of_images)
-            mean_height = int(mean_height / num_of_images)
-            for i in text:
-                if not i.isalpha():
-                    continue
-                im = Image.open("static/sign_alpha/"+i+".jpg")
-                width, height = im.size
-
-                imResize = im.resize(
-                    (mean_width, mean_height), Image.LANCZOS)
-                imResize.save("video_proc/"+i+".jpeg", 'JPEG', quality=95)
 
             video_name = 'video_proc/{}.webm'.format(text)
-            frame = cv2.imread("video_proc/"+text[0]+".jpeg")
+            print(text[0])
+            frame = cv2.imread("static/sign_alpha/"+text[0]+".jpg")
             height, width, layers = frame.shape
             fourcc = cv2.VideoWriter_fourcc(*'VP90')
             video = cv2.VideoWriter(video_name, fourcc, 1, (width, height))
@@ -551,13 +552,13 @@ def speech_detection():
             for i in text:
                 if not i.isalpha():
                     continue
-                video.write(cv2.imread("video_proc/"+i+".jpeg"))
+                video.write(cv2.imread("static/sign_alpha/"+i+".jpg"))
 
             cv2.destroyAllWindows()
             video.release()
             st.header(original_text)
             st.video("video_proc/{}.webm".format(text))
-
+            
     files = glob.glob('video_proc/*')
     for f in files:
         os.remove(f)
