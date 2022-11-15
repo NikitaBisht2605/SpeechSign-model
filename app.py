@@ -36,9 +36,13 @@ def firebase():
 
 
 def cache_query_param():
-    query_param = st.experimental_get_query_params()
-    user_id = query_param['user'][0]
-    if 'key' not in st.session_state:
+    try:
+        query_param = st.experimental_get_query_params()
+        user_id = query_param['user'][0]
+        st.session_state['key'] = user_id
+    except Exception as e:
+        st.error("Please enter the user id, or try logging in from the home page")
+        user_id = st.text_input("Enter your user id", key="user_id")
         st.session_state['key'] = user_id
 
 
@@ -591,24 +595,26 @@ def main():
     st.image(image)
     st.title("@SpeechSign")
     cache_query_param()
-    user_id = st.session_state.key
 
-    app, db = firebase()
-    st.sidebar.title("Select the process to your convinience")
-    st.sidebar.markdown("Select the conversion method accordingly:")
-    algo = st.sidebar.selectbox(
-        "Select the Operation", options=["Sign-to-Speech", "Speech-to-Sign", "Access Database", "Sign Recog Model Architecture"]
-    )
+    if st.session_state.key:
+        user_id = st.session_state.key
 
-    if algo == "Sign-to-Speech":
-        sign_detection(db, user_id=user_id)
-    elif algo == "Speech-to-Sign":
-        speech_detection()
-    elif algo == "Access Database":
-        show_database(db, user_id=user_id)
-    elif algo == "Sign Recog Model Architecture":
-        st.title("Sign Recog Model Architecture")
-        st.image("static/arch.png")
+        app, db = firebase()
+        st.sidebar.title("Select the process to your convinience")
+        st.sidebar.markdown("Select the conversion method accordingly:")
+        algo = st.sidebar.selectbox(
+            "Select the Operation", options=["Sign-to-Speech", "Speech-to-Sign", "Access Database", "Sign Recog Model Architecture"]
+        )
+
+        if algo == "Sign-to-Speech":
+            sign_detection(db, user_id=user_id)
+        elif algo == "Speech-to-Sign":
+            speech_detection()
+        elif algo == "Access Database":
+            show_database(db, user_id=user_id)
+        elif algo == "Sign Recog Model Architecture":
+            st.title("Sign Recog Model Architecture")
+            st.image("static/arch.png")
 
 
 if __name__ == "__main__":
