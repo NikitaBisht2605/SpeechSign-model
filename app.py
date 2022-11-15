@@ -532,7 +532,6 @@ def download_file(url, download_to: Path, expected_size=None):
             progress_bar.empty()
 
 
-@st.cache(ttl=24*3600, allow_output_mutation=True)
 def deepspech_model_load(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
     from deepspeech import Model
 
