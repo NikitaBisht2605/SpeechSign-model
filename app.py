@@ -528,10 +528,14 @@ def speech_detection():
             return json.loads(response.content.decode("utf-8"))
 
         result = query("audio_proc/audio.mp3")
+        placeholder = st.empty()
 
         while 'error' in result:
-            time.sleep(10)
+            placeholder.error("Model is still loading, please wait...")
+            time.sleep(30)
             result = query("audio_proc/audio.mp3")
+        
+        placeholder.success("Model loaded successfully")
         text = result["text"]
         # result = model.transcribe("audio_proc/audio.mp3")
         # text = result["text"]
