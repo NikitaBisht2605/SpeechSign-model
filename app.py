@@ -46,7 +46,7 @@ def firebase():
     return app, db
 
 
-@st.cache
+@st.cache()
 def cache_query_param():
     query_param = st.experimental_get_query_params()
     print(query_param)
@@ -310,7 +310,7 @@ def extract_feature(image):
                     pinky_TipX, pinky_TipY, pinky_TipZ,
                     annotated_image)
 
-@st.cache(ttl=24*3600, allow_output_mutation=True)
+
 def load_model():
     num_classes = 26
     model = tf.keras.models.Sequential([
@@ -532,6 +532,20 @@ def download_file(url, download_to: Path, expected_size=None):
             progress_bar.empty()
 
 
+@st.cache(ttl=24*3600, allow_output_mutation=True)
+def deepspech_model_load(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
+    from deepspeech import Model
+
+    model = Model(model_path)
+    model.enableExternalScorer(lm_path)
+    model.setScorerAlphaBeta(lm_alpha, lm_beta)
+    model.setBeamWidth(beam)
+
+    stream = model.createStream()
+
+    return model, stream
+
+
 def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
     webrtc_ctx = webrtc_streamer(
         key="speech-to-text",
@@ -574,15 +588,9 @@ def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam
     while True:
         if webrtc_ctx.audio_receiver:
             if stream is None:
-                from deepspeech import Model
 
-                model = Model(model_path)
-                model.enableExternalScorer(lm_path)
-                model.setScorerAlphaBeta(lm_alpha, lm_beta)
-                model.setBeamWidth(beam)
-
-                stream = model.createStream()
-
+                model, stream = deepspech_model_load(
+                    model_path, lm_path, lm_alpha, lm_beta, beam)
                 status_indicator.write("Model loaded.")
 
             sound_chunk = pydub.AudioSegment.empty()
@@ -621,120 +629,6 @@ def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam
             break
 
 
-def app_sst_with_video(
-    model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int
-):
-    frames_deque_lock = threading.Lock()
-    frames_deque: deque = deque([])
-
-    async def queued_audio_frames_callback(
-        frames: List[av.AudioFrame],
-    ) -> av.AudioFrame:
-        with frames_deque_lock:
-            frames_deque.extend(frames)
-
-        # Return empty frames to be silent.
-        new_frames = []
-        for frame in frames:
-            input_array = frame.to_ndarray()
-            new_frame = av.AudioFrame.from_ndarray(
-                np.zeros(input_array.shape, dtype=input_array.dtype),
-                layout=frame.layout.name,
-            )
-            new_frame.sample_rate = frame.sample_rate
-            new_frames.append(new_frame)
-
-        return new_frames
-
-    webrtc_ctx = webrtc_streamer(
-        key="speech-to-text-w-video",
-        mode=WebRtcMode.SENDRECV,
-        queued_audio_frames_callback=queued_audio_frames_callback,
-        rtc_configuration={"iceServers": [
-            {
-                "urls": "stun:openrelay.metered.ca:80",
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:80",
-                        "username": "openrelayproject",
-                        "credential": "openrelayproject",
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:443",
-                        "username": "openrelayproject",
-                        "credential": "openrelayproject",
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
-                        "username": "openrelayproject",
-                        "credential": "openrelayproject",
-            },
-        ]},
-        media_stream_constraints={"video": True, "audio": True},
-    )
-
-    status_indicator = st.empty()
-
-    if not webrtc_ctx.state.playing:
-        return
-
-    status_indicator.write("Loading...")
-    text_output = st.empty()
-    stream = None
-
-    while True:
-        if webrtc_ctx.state.playing:
-            if stream is None:
-                from deepspeech import Model
-
-                model = Model(model_path)
-                model.enableExternalScorer(lm_path)
-                model.setScorerAlphaBeta(lm_alpha, lm_beta)
-                model.setBeamWidth(beam)
-
-                stream = model.createStream()
-
-                status_indicator.write("Model loaded.")
-
-            sound_chunk = pydub.AudioSegment.empty()
-
-            audio_frames = []
-            with frames_deque_lock:
-                while len(frames_deque) > 0:
-                    frame = frames_deque.popleft()
-                    audio_frames.append(frame)
-
-            if len(audio_frames) == 0:
-                time.sleep(0.1)
-                status_indicator.write("No frame arrived.")
-                continue
-
-            status_indicator.write("Running. Say something!")
-
-            for audio_frame in audio_frames:
-                sound = pydub.AudioSegment(
-                    data=audio_frame.to_ndarray().tobytes(),
-                    sample_width=audio_frame.format.bytes,
-                    frame_rate=audio_frame.sample_rate,
-                    channels=len(audio_frame.layout.channels),
-                )
-                sound_chunk += sound
-
-            if len(sound_chunk) > 0:
-                sound_chunk = sound_chunk.set_channels(1).set_frame_rate(
-                    model.sampleRate()
-                )
-                buffer = np.array(sound_chunk.get_array_of_samples())
-                stream.feedAudioContent(buffer)
-                text = stream.intermediateDecode()
-                text_output.markdown(f"**Text:** {text}")
-                with open('audio_proc/data.txt', 'w') as f:
-                    f.write(text)
-        else:
-            status_indicator.write("Stopped.")
-            break
-
-
 def speech_detection():
 
     MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.pbmm"  # noqa
@@ -750,25 +644,8 @@ def speech_detection():
     lm_beta = 1.1834137581510284
     beam = 100
 
-    sound_only_page = "Sound only (sendonly)"
-    with_video_page = "With video (sendrecv)"
-
-    app_mode = st.selectbox(
-        "Choose the app mode",
-        [sound_only_page, with_video_page],
-        index=1,
-    )
-
-    if app_mode == sound_only_page:
-        app_sst(
-            str(MODEL_LOCAL_PATH), str(
-                LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam
-        )
-    elif app_mode == with_video_page:
-        app_sst_with_video(
-            str(MODEL_LOCAL_PATH), str(
-                LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam
-        )
+    app_sst(str(MODEL_LOCAL_PATH), str(
+        LANG_MODEL_LOCAL_PATH), lm_alpha, lm_beta, beam)
 
     # read content of audio_proc/data.txt
     with open('audio_proc/data.txt', 'r') as f:
