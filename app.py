@@ -44,6 +44,10 @@ def cache_query_param():
         st.error("Please enter the user id, or try logging in from the home page")
         user_id = st.text_input("Enter your user id", key="user_id")
         st.session_state['key'] = user_id
+        if user_id:
+            st.experimental_set_query_params(user=user_id)
+            st.experimental_rerun()
+
 
 
 def extract_feature(image):
