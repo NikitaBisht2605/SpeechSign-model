@@ -189,7 +189,7 @@ def extract_feature(image):
                         pinky_PipX, pinky_PipY, pinky_PipZ,
                         pinky_DipX, pinky_DipY, pinky_DipZ,
                         pinky_TipX, pinky_TipY, pinky_TipZ,
-                        annotated_image)
+                        image)
 
             annotated_image = cv2.flip(image.copy(), 1)
             for hand_landmarks in results.multi_hand_landmarks:
@@ -349,27 +349,27 @@ def load_model():
 
 def predict(frame, model):
     (wristX, wristY, wristZ,
-    thumb_CmcX, thumb_CmcY, thumb_CmcZ,
-    thumb_McpX, thumb_McpY, thumb_McpZ,
-    thumb_IpX, thumb_IpY, thumb_IpZ,
-    thumb_TipX, thumb_TipY, thumb_TipZ,
-    index_McpX, index_McpY, index_McpZ,
-    index_PipX, index_PipY, index_PipZ,
-    index_DipX, index_DipY, index_DipZ,
-    index_TipX, index_TipY, index_TipZ,
-    middle_McpX, middle_McpY, middle_McpZ,
-    middle_PipX, middle_PipY, middle_PipZ,
-    middle_DipX, middle_DipY, middle_DipZ,
-    middle_TipX, middle_TipY, middle_TipZ,
-    ring_McpX, ring_McpY, ring_McpZ,
-    ring_PipX, ring_PipY, ring_PipZ,
-    ring_DipX, ring_DipY, ring_DipZ,
-    ring_TipX, ring_TipY, ring_TipZ,
-    pinky_McpX, pinky_McpY, pinky_McpZ,
-    pinky_PipX, pinky_PipY, pinky_PipZ,
-    pinky_DipX, pinky_DipY, pinky_DipZ,
-    pinky_TipX, pinky_TipY, pinky_TipZ,
-    output_IMG) = extract_feature(frame)
+     thumb_CmcX, thumb_CmcY, thumb_CmcZ,
+     thumb_McpX, thumb_McpY, thumb_McpZ,
+     thumb_IpX, thumb_IpY, thumb_IpZ,
+     thumb_TipX, thumb_TipY, thumb_TipZ,
+     index_McpX, index_McpY, index_McpZ,
+     index_PipX, index_PipY, index_PipZ,
+     index_DipX, index_DipY, index_DipZ,
+     index_TipX, index_TipY, index_TipZ,
+     middle_McpX, middle_McpY, middle_McpZ,
+     middle_PipX, middle_PipY, middle_PipZ,
+     middle_DipX, middle_DipY, middle_DipZ,
+     middle_TipX, middle_TipY, middle_TipZ,
+     ring_McpX, ring_McpY, ring_McpZ,
+     ring_PipX, ring_PipY, ring_PipZ,
+     ring_DipX, ring_DipY, ring_DipZ,
+     ring_TipX, ring_TipY, ring_TipZ,
+     pinky_McpX, pinky_McpY, pinky_McpZ,
+     pinky_PipX, pinky_PipY, pinky_PipZ,
+     pinky_DipX, pinky_DipY, pinky_DipZ,
+     pinky_TipX, pinky_TipY, pinky_TipZ,
+     output_IMG) = extract_feature(frame)
 
     input_IMG = np.array([[[wristX], [wristY], [wristZ],
                            [thumb_CmcX], [thumb_CmcY], [thumb_CmcZ],
@@ -393,15 +393,16 @@ def predict(frame, model):
                            [pinky_DipX], [pinky_DipY], [pinky_DipZ],
                            [pinky_TipX], [pinky_TipY], [pinky_TipZ]]])
 
-    
-    
     predictions = model.predict(input_IMG)
-    char = chr(np.argmax(predictions)+65)  
-    confidece = np.max(predictions)/np.sum(predictions)  
-    return char, confidece
+    char = chr(np.argmax(predictions)+65)
+    confidece = np.max(predictions)/np.sum(predictions)
+    # put char and confidence on image
+    cv2.putText(output_IMG, char, (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(output_IMG, str(confidece), (50, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-
-
+    return char, confidece, output_IMG
 
 
 class Detection(NamedTuple):
@@ -421,17 +422,18 @@ class VideoTransformer(VideoProcessorBase):
     def _predict_image(self, image):
         result: List[Detection] = []
         model = load_model()
-        label, confidence = predict(image, model)
+        label, confidence, output_img = predict(image, model)
         # st.write([label, confidence])
         result.append(Detection(name=label, prob=float(confidence)))
-        return result
+        return result, output_img
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         self.frame = frame
-        result = self._predict_image(frame.to_ndarray(format="bgr24"))
+        result, output_img = self._predict_image(
+            frame.to_ndarray(format="bgr24"))
         self.result_queue.put(result)
 
-        return 0
+        return av.VideoFrame.from_ndarray(output_img, format="bgr24")
 
 
 def sign_detection(db, user_id):
@@ -462,8 +464,6 @@ def sign_detection(db, user_id):
         media_stream_constraints={"video": True, "audio": False},
         video_processor_factory=VideoTransformer,
         async_processing=True,)
-
-    
 
     if st.checkbox("Show the detected labels", value=True):
         if ctx.state.playing:
