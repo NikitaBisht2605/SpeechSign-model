@@ -10,5 +10,5 @@ PyJWT
 tensorflow
 numpy
 mediapipe
-whisper
+git+https://github.com/openai/whisper.git
 streamlit-audiorecorder
