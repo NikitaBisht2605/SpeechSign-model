@@ -37,9 +37,9 @@ def firebase():
 
 def cache_query_param():
     query_param = st.experimental_get_query_params()
-    print(query_param)
     user_id = query_param['user'][0]
-    return user_id, query_param
+    if 'key' not in st.session_state:
+        st.session_state['key'] = user_id
 
 
 def extract_feature(image):
@@ -479,10 +479,7 @@ def sign_detection(db, user_id):
                             'sign-detected')
                         # check if result is empty
                         if result:
-                            doc_ref.add({
-                                u'sign': result[0].name,
-                                u'confidence': result[0].prob
-                            })
+                            doc_ref.add({result[0].name: result[0].prob})
                         # doc_ref.add({result[0].name: result[0].prob})
                     except queue.Empty:
                         result = None
@@ -501,12 +498,14 @@ def speech_detection():
 
         model = whisper.load_model("tiny.en")
 
+        # if not audio.mp3 exists then create it
         wav_file = open("audio_proc/audio.mp3", "wb")
         wav_file.write(audio.tobytes())
         result = model.transcribe("audio_proc/audio.mp3")
         text = result["text"]
 
         if text != '':
+            original_text = text
             text = text.upper()
             text = text.replace(' ', '')
             mean_width = 0
@@ -546,7 +545,7 @@ def speech_detection():
 
             cv2.destroyAllWindows()
             video.release()
-            st.header(text)
+            st.header(original_text)
             st.video("video_proc/{}.webm".format(text))
 
     import glob
@@ -591,7 +590,8 @@ def main():
 
     st.image(image)
     st.title("@SpeechSign")
-    user_id, query_param = cache_query_param()
+    cache_query_param()
+    user_id = st.session_state.key
 
     app, db = firebase()
     st.sidebar.title("Select the process to your convinience")
