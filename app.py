@@ -310,7 +310,6 @@ def extract_feature(image):
                     annotated_image)
 
 
-@st.cache(allow_output_mutation=True)
 def load_model():
     num_classes = 26
     model = tf.keras.models.Sequential([
@@ -493,7 +492,6 @@ def sign_detection(db, user_id):
                     break
 
 
-@st.cache(allow_output_mutation=True)
 def audio_model():
     return whisper.load_model("tiny.en")
 
