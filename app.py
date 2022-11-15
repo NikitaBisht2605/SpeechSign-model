@@ -25,7 +25,6 @@ import time
 import urllib.request
 from collections import deque
 from pathlib import Path
-from typing import List
 import pydub
 import mediapipe as mp
 import tensorflow as tf
@@ -669,7 +668,7 @@ def speech_detection():
                 width, height = im.size
 
                 imResize = im.resize(
-                    (mean_width, mean_height), Image.Resampling.LANCZOS)
+                    (mean_width, mean_height), Image.LANCZOS)
                 imResize.save("video_proc/"+i+".jpeg", 'JPEG', quality=95)
 
             video_name = 'video_proc/{}.webm'.format(text)

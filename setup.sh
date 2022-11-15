@@ -11,6 +11,3 @@ headless = true\n\
 enableCORS=false\n\
 port = $PORT\n\
 " >~/.streamlit/config.toml
-
-
-/home/appuser/venv/bin/python -m pip install --upgrade pip
