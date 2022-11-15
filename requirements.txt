@@ -9,7 +9,6 @@ pillow
 PyJWT
 tensorflow
 numpy
-deepspeech
-pydub
 mediapipe
-keras
+whisper
+streamlit-audiorecorder
