@@ -68,7 +68,9 @@ def extract_feature(image):
                 (results.segmentation_mask,) * 3, axis=-1) > 0.1
             image = np.where(condition, image, bg_image)
 
-            with mp_hands.Hands(static_image_mode=True, max_num_hands=2, min_detection_confidence=0.2) as hands:
+            with mp_hands.Hands(model_complexity=0,
+                                min_detection_confidence=0.5,
+                                min_tracking_confidence=0.5) as hands:
                 results = hands.process(
                     cv2.flip(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), 1))
                 image_height, image_width, _ = image.shape
