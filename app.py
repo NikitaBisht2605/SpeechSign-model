@@ -1,26 +1,20 @@
-import streamlit as st
 import queue
-import av
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
-from streamlit_webrtc import (
-    webrtc_streamer,
-    VideoProcessorBase,
-    WebRtcMode
-)
 from typing import List, NamedTuple
-from PIL import Image
+
+import av
 import cv2
+import firebase_admin
+import mediapipe as mp
 import numpy as np
 import pandas as pd
-import pandas as pd
-import queue
-import mediapipe as mp
+import streamlit as st
 import tensorflow as tf
 import whisper
 from audiorecorder import audiorecorder
-
+from firebase_admin import credentials, firestore
+from PIL import Image
+from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
+import queue
 # np.set_printoptions(suppress=True)
 
 
@@ -47,7 +41,6 @@ def cache_query_param():
         if user_id:
             st.experimental_set_query_params(user=user_id)
             st.experimental_rerun()
-
 
 
 def extract_feature(image):
@@ -162,7 +155,6 @@ def extract_feature(image):
                 pinky_TipX = 0
                 pinky_TipY = 0
                 pinky_TipZ = 0
-
 
                 # Return Whole Landmark and Image
                 return (wristX, wristY, wristZ,
@@ -286,13 +278,17 @@ def extract_feature(image):
 
                 # draw bounding box
                 bounding_box = {}
-                bounding_box['x_min'] = int(min(wristX, thumb_CmcX, thumb_IpX, thumb_TipX, index_McpX, index_PipX, index_DipX, index_TipX, middle_McpX, middle_PipX, middle_DipX, middle_TipX, ring_McpX, ring_PipX, ring_DipX, ring_TipX, pinky_McpX, pinky_PipX, pinky_DipX, pinky_TipX))
-                bounding_box['y_min'] = int(min(wristY, thumb_CmcY, thumb_IpY, thumb_TipY, index_McpY, index_PipY, index_DipY, index_TipY, middle_McpY, middle_PipY, middle_DipY, middle_TipY, ring_McpY, ring_PipY, ring_DipY, ring_TipY, pinky_McpY, pinky_PipY, pinky_DipY, pinky_TipY))
-                bounding_box['x_max'] = int(max(wristX, thumb_CmcX, thumb_IpX, thumb_TipX, index_McpX, index_PipX, index_DipX, index_TipX, middle_McpX, middle_PipX, middle_DipX, middle_TipX, ring_McpX, ring_PipX, ring_DipX, ring_TipX, pinky_McpX, pinky_PipX, pinky_DipX, pinky_TipX))
-                bounding_box['y_max'] = int(max(wristY, thumb_CmcY, thumb_IpY, thumb_TipY, index_McpY, index_PipY, index_DipY, index_TipY, middle_McpY, middle_PipY, middle_DipY, middle_TipY, ring_McpY, ring_PipY, ring_DipY, ring_TipY, pinky_McpY, pinky_PipY, pinky_DipY, pinky_TipY))
-                
-                
-                cv2.rectangle(annotated_image, (bounding_box['x_min'], bounding_box['y_min']), (bounding_box['x_max'], bounding_box['y_max']), (0, 255, 0), 2)
+                bounding_box['x_min'] = int(min(wristX, thumb_CmcX, thumb_IpX, thumb_TipX, index_McpX, index_PipX, index_DipX, index_TipX, middle_McpX,
+                                            middle_PipX, middle_DipX, middle_TipX, ring_McpX, ring_PipX, ring_DipX, ring_TipX, pinky_McpX, pinky_PipX, pinky_DipX, pinky_TipX))
+                bounding_box['y_min'] = int(min(wristY, thumb_CmcY, thumb_IpY, thumb_TipY, index_McpY, index_PipY, index_DipY, index_TipY, middle_McpY,
+                                            middle_PipY, middle_DipY, middle_TipY, ring_McpY, ring_PipY, ring_DipY, ring_TipY, pinky_McpY, pinky_PipY, pinky_DipY, pinky_TipY))
+                bounding_box['x_max'] = int(max(wristX, thumb_CmcX, thumb_IpX, thumb_TipX, index_McpX, index_PipX, index_DipX, index_TipX, middle_McpX,
+                                            middle_PipX, middle_DipX, middle_TipX, ring_McpX, ring_PipX, ring_DipX, ring_TipX, pinky_McpX, pinky_PipX, pinky_DipX, pinky_TipX))
+                bounding_box['y_max'] = int(max(wristY, thumb_CmcY, thumb_IpY, thumb_TipY, index_McpY, index_PipY, index_DipY, index_TipY, middle_McpY,
+                                            middle_PipY, middle_DipY, middle_TipY, ring_McpY, ring_PipY, ring_DipY, ring_TipY, pinky_McpY, pinky_PipY, pinky_DipY, pinky_TipY))
+
+                cv2.rectangle(annotated_image, (bounding_box['x_min'], bounding_box['y_min']), (
+                    bounding_box['x_max'], bounding_box['y_max']), (0, 255, 0), 2)
 
             return (wristX, wristY, wristZ,
                     thumb_CmcX, thumb_CmcY, thumb_CmcZ,
@@ -318,6 +314,7 @@ def extract_feature(image):
                     annotated_image)
 
 
+@st.cache(ttl=24*60*60)
 def load_model():
     num_classes = 26
     model = tf.keras.models.Sequential([
@@ -406,7 +403,7 @@ def predict(frame, model):
 
     if confidence > 0.4:
         cv2.putText(output_IMG, char, (50, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         cv2.putText(output_IMG, str(confidence), (50, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         return char, confidence, output_IMG
@@ -497,6 +494,12 @@ def sign_detection(db, user_id):
                     break
 
 
+@st.cache(ttl=24*60*60)
+def audio_model():
+    model = whisper.load_model("tiny.en")
+    return model
+
+
 def speech_detection():
     # app_sst()
     audio = audiorecorder("Click to record", "Recording...")
@@ -504,7 +507,7 @@ def speech_detection():
     if len(audio) > 0:
         st.audio(audio)
 
-        model = whisper.load_model("tiny.en")
+        model = audio_model()
 
         # if not audio.mp3 exists then create it
         wav_file = open("audio_proc/audio.mp3", "wb")
@@ -529,7 +532,6 @@ def speech_detection():
 
             mean_width = int(mean_width / num_of_images)
             mean_height = int(mean_height / num_of_images)
-            images = []
             for i in text:
                 if not i.isalpha():
                     continue
@@ -556,8 +558,6 @@ def speech_detection():
             st.header(original_text)
             st.video("video_proc/{}.webm".format(text))
 
-    import glob
-    import os
     files = glob.glob('video_proc/*')
     for f in files:
         os.remove(f)
