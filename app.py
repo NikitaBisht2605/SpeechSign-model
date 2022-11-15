@@ -492,10 +492,6 @@ def sign_detection(db, user_id):
                     break
 
 
-def audio_model():
-    return whisper.load_model("tiny.en")
-
-
 def speech_detection():
     # app_sst()
     audio = audiorecorder("Click to record", "Recording...")
@@ -503,7 +499,7 @@ def speech_detection():
     if len(audio) > 0:
         st.audio(audio)
 
-        model = audio_model()
+        model = whisper.load_model("tiny.en")
 
         wav_file = open("audio_proc/audio.mp3", "wb")
         wav_file.write(audio.tobytes())
