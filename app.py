@@ -16,19 +16,12 @@ import numpy as np
 import pandas as pd
 import pandas as pd
 import queue
-import time
-import urllib.request
-from pathlib import Path
-import pydub
 import mediapipe as mp
 import tensorflow as tf
 import whisper
 from audiorecorder import audiorecorder
 
 # np.set_printoptions(suppress=True)
-
-
-global query_param
 
 
 def firebase():
@@ -42,7 +35,6 @@ def firebase():
     return app, db
 
 
-@st.cache()
 def cache_query_param():
     query_param = st.experimental_get_query_params()
     print(query_param)
